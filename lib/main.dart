@@ -8,6 +8,7 @@ import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'screens/login_screen.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'services/location_service.dart';
+import 'package:shared_preferences/shared_preferences.dart'; // ⭐ Needed for clocked-in check
 
 // Top-level function for background message handling
 @pragma('vm:entry-point')
@@ -16,13 +17,12 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   print('Handling a background message: ${message.messageId}');
 }
 
-
 Future<void> initializeNotifications() async {
   final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
-      FlutterLocalNotificationsPlugin();
+  FlutterLocalNotificationsPlugin();
 
   const AndroidNotificationChannel channel = AndroidNotificationChannel(
-    'dorothy_location_service', 
+    'dorothy_location_service',
     'DOROTHY Location Service',
     description: 'Notification channel for location tracking service.',
     importance: Importance.low, // Use low importance to avoid sound
@@ -30,27 +30,32 @@ Future<void> initializeNotifications() async {
 
   await flutterLocalNotificationsPlugin
       .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin>()
+      AndroidFlutterLocalNotificationsPlugin>()
       ?.createNotificationChannel(channel);
 }
 
-
-
-void main() async {
-
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  await setup(); 
+
+  await setup();
   await Firebase.initializeApp();
-
   await initializeNotifications();
+  await LocationService().initialize(); // ✅ Prepare background service
 
-
-  await LocationService().initialize();
-
-  
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-  
+
+  // ⭐ NEW: Auto-resume tracking if still clocked in
+  final prefs = await SharedPreferences.getInstance();
+  final isClockedIn = prefs.getBool('isClockedIn') ?? false;
+  final fieldEngineerId = prefs.getInt('fieldEngineerId');
+
+  if (isClockedIn && fieldEngineerId != null) {
+    print("🔄 Auto-starting background tracking after app relaunch");
+    await LocationService().start(fieldEngineerId);
+  } else {
+    print("🛑 Not clocked in — skipping auto-start of background service");
+  }
+
   runApp(const MyApp());
 }
 
@@ -65,8 +70,8 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // Custom colors - UPDATED
-    const primaryColor = Color.fromARGB(255, 116, 109, 241); // Deep purple background
-    const accentColor = Color.fromARGB(255, 246, 255, 168);  // Bright yellow-green accent
+    const primaryColor = Color.fromARGB(255, 116, 109, 241); // Deep purple
+    const accentColor = Color.fromARGB(255, 245, 255, 140); // Yellow-green
 
     return MaterialApp(
       title: 'Dorothy',
@@ -76,40 +81,36 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(
           seedColor: primaryColor,
           brightness: Brightness.light,
-          // Override specific colors for better contrast
-          surface: primaryColor,           // Background color
-          onSurface: Colors.white,        // Text on background
-          primary: accentColor,           // Button color
-          onPrimary: Colors.black87,      // Text on buttons (BLACK for yellow)
-          primaryContainer: accentColor,   // FAB background
-          onPrimaryContainer: Colors.black87, // FAB text/icons (BLACK for yellow)
+          surface: primaryColor,
+          onSurface: Colors.white,
+          primary: accentColor,
+          onPrimary: Colors.black87,
+          primaryContainer: accentColor,
+          onPrimaryContainer: Colors.black87,
           secondary: accentColor.withOpacity(0.8),
           tertiary: accentColor.withOpacity(0.6),
         ),
-        // Custom button themes for consistent yellow-green buttons
         filledButtonTheme: FilledButtonThemeData(
           style: FilledButton.styleFrom(
             backgroundColor: accentColor,
-            foregroundColor: Colors.black87, // BLACK text on yellow
+            foregroundColor: Colors.black87,
           ),
         ),
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
             backgroundColor: accentColor,
-            foregroundColor: Colors.black87, // BLACK text on yellow
+            foregroundColor: Colors.black87,
           ),
         ),
         floatingActionButtonTheme: FloatingActionButtonThemeData(
           backgroundColor: accentColor,
-          foregroundColor: Colors.black87, // BLACK icons on yellow
+          foregroundColor: Colors.black87,
         ),
-        // App bar with deep purple background
         appBarTheme: AppBarTheme(
           backgroundColor: primaryColor,
           foregroundColor: Colors.white,
           elevation: 0,
         ),
-        // Card theme for better contrast
         cardTheme: CardThemeData(
           color: Colors.white,
           elevation: 4,
@@ -117,14 +118,10 @@ class MyApp extends StatelessWidget {
             borderRadius: BorderRadius.circular(12),
           ),
         ),
-        // Scaffold background
         scaffoldBackgroundColor: primaryColor,
         textTheme: GoogleFonts.outfitTextTheme(
           ThemeData(brightness: Brightness.light).textTheme,
-        ).apply(
-          bodyColor: Colors.white,
-          displayColor: Colors.white,
-        ),
+        ).apply(bodyColor: Colors.white, displayColor: Colors.white),
       ),
       home: const LoginPage(),
     );

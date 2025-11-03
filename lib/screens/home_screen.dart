@@ -1,8 +1,15 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'dart:async';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/location_service.dart';
-import 'package:google_fonts/google_fonts.dart'; // ADD THIS
+import 'package:google_fonts/google_fonts.dart';
+import '../screens/profile_screen.dart';
+import '../screens/dtr_screen.dart';
+import '../screens/task_screen.dart';
+import '../screens/login_screen.dart';
 
 // Model para sa ating attendance log
 class AttendanceLog {
@@ -27,7 +34,6 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
-  // Gamitin natin ang bagong LocationService
   final LocationService _locationService = LocationService();
 
   // State variables para sa attendance
@@ -39,6 +45,8 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   bool _isFabExpanded = false;
   late AnimationController _fabAnimationController;
   late Animation<double> _fabScaleAnimation;
+  Duration _elapsedTime = Duration.zero;
+  Timer? _timer;
 
   @override
   void initState() {
@@ -52,13 +60,35 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     _fabScaleAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(parent: _fabAnimationController, curve: Curves.easeOut),
     );
+    _fetchAttendanceLogs();
+    _checkClockInStatus();
   }
 
   @override
   void dispose() {
-    _locationService.stop();
+    _timer?.cancel();
+    //_locationService.stop();
     _fabAnimationController.dispose(); // Don't forget this!
     super.dispose();
+  }
+
+  //timer
+  void _startTimer() {
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_timeInTimestamp != null) {
+        setState(() {
+          _elapsedTime = DateTime.now().difference(_timeInTimestamp!);
+        });
+      }
+    });
+  }
+
+  //stop timer
+  void _stopTimer(){
+    _timer?.cancel();
+    setState(() {
+      _elapsedTime = Duration.zero;
+    });
   }
 
   // ADD THESE METHODS
@@ -73,43 +103,80 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     });
   }
 
-  void _showProfile() {
+  void _showTasks() {
     _toggleFab(); // Close FAB first
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Profile: ${widget.fieldEngineer['name']}'),
-        backgroundColor: Colors.blue,
-      ),
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const TasksScreen()),
     );
   }
 
-  void _showDTR() {
+  void _showTermsAndCondition() {
     _toggleFab(); // Close FAB first
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Daily Time Record'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('Employee: ${widget.fieldEngineer['name']}'),
-            const SizedBox(height: 8),
-            Text('Total Logs: ${_attendanceLogs.length}'),
-            const SizedBox(height: 8),
-            Text('Status: ${_isTimedIn ? "Timed In" : "Timed Out"}'),
-          ],
+        title: const Text('Terms and Conditions', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: const [
+              Text(
+                '1. Acceptance of Terms: By using this app, you agree to comply with these terms and conditions.', style: TextStyle(color: Colors.black),
+              ),
+              SizedBox(height: 8),
+              Text(
+                '2. User Responsibilities: You are responsible for maintaining the confidentiality of your account information and for all activities that occur under your account.', style: TextStyle(color: Colors.black),
+              ),
+              SizedBox(height: 8),
+              Text(
+                '3. Attendance Accuracy: You must ensure that your time-in and time-out entries are accurate and truthful.', style: TextStyle(color: Colors.black),
+              ),
+              SizedBox(height: 8),
+              Text(
+                '4. Location Tracking: By timing in, you consent to the app tracking your location for attendance purposes.', style: TextStyle(color: Colors.black),
+              ),
+              SizedBox(height: 8),
+              Text(
+                '5. Data Privacy: Your personal data will be handled in accordance with our privacy policy.', style: TextStyle(color: Colors.black),
+              ),
+              SizedBox(height: 8),
+              Text(
+                  '6. App Usage: You agree to use the app only for its intended purpose and not for any unlawful activities.', style: TextStyle(color: Colors.black)
+              ),
+              SizedBox(height: 8),
+              Text(
+                  '7. Modifications to Terms: We reserve the right to modify these terms at any time. Continued use of the app constitutes acceptance of the revised terms.', style: TextStyle(color: Colors.black)
+              ),
+            ],
+          ),
         ),
         actions: [
-          TextButton(
+          FilledButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('Close'),
           ),
         ],
       ),
     );
+
+
   }
 
-  void _logout() {
+  void _showDTR() {
+    _toggleFab(); // Close FAB first
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => DtrScreen(
+          fieldEngineerId: widget.fieldEngineer['id'],
+        ),
+      ),
+    );
+  }
+
+  void _logout()  {
     _toggleFab(); // Close FAB first
     showDialog(
       context: context,
@@ -122,11 +189,16 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () {
+            onPressed: () async {
               // Stop location service if running
               if (_isTimedIn) {
                 _locationService.stop();
               }
+
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool('isClockedIn', false); // ✅ ensure reset
+              await prefs.remove('fieldEngineerId'); // optional but clean
+
               Navigator.pop(context); // Close dialog
               Navigator.pop(context); // Go back to login
             },
@@ -137,50 +209,144 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     );
   }
 
-  void _toggleTimeIn() {
-    setState(() {
-      _isTimedIn = !_isTimedIn;
-      final now = DateTime.now();
+  Future<void> _toggleTimeIn() async {
+    final int engineerId = widget.fieldEngineer['id'];
+    final bool isClockingIn = !_isTimedIn;
+    final now = DateTime.now();
 
-      if (_isTimedIn) {
-        // --- LOGIC PARA SA TIME IN ---
-        _timeInTimestamp = now;
-        _attendanceLogs.insert(0, AttendanceLog(time: now, status: 'Timed In'));
+    final url = isClockingIn
+        ? 'https://ecsmapappwebadminbackend-production.up.railway.app/api/FieldEngineer/$engineerId/clockin'
+        : 'https://ecsmapappwebadminbackend-production.up.railway.app/api/FieldEngineer/$engineerId/clockout';
 
-        print("==============================================");
-        print("Button Tapped - TIMING IN");
-        print("==============================================");
-        _locationService.start(widget.fieldEngineer['id']);
+    try {
+      final response = await http.post(Uri.parse(url));
+
+      if (response.statusCode == 200) {
+        setState(() {
+          _isTimedIn = isClockingIn;
+          if (isClockingIn) {
+            _timeInTimestamp = now;
+            _startTimer();
+            _locationService.start(engineerId);
+          } else {
+            _timeInTimestamp = null;
+            _stopTimer();
+            _locationService.stop();
+          }
+        });
 
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('You have successfully timed in!'),
-            backgroundColor: Colors.green,
+          SnackBar(
+            content: Text(isClockingIn
+                ? 'You have successfully clocked in!'
+                : 'You have successfully clocked out.'),
+            backgroundColor: isClockingIn ? Colors.green : Colors.orange,
           ),
         );
+
+        await _fetchAttendanceLogs(); // refresh logs from backend
       } else {
-        // --- LOGIC PARA SA TIME OUT ---
-        _timeInTimestamp = null;
-        _attendanceLogs.insert(
-          0,
-          AttendanceLog(time: now, status: 'Timed Out'),
-        );
-
-        print("==============================================");
-        print("Button Tapped - TIMING OUT");
-        print("==============================================");
-        _locationService.stop();
-
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('You have successfully timed out.'),
-            backgroundColor: Colors.orange,
-          ),
+          SnackBar(content: Text('Error: ${response.body}')),
         );
       }
-    });
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Network error: $e')),
+      );
+    }
   }
-  // ============== WALA NANG IBANG HANDLE TIME IN/OUT FUNCTION ==============
+
+  Future<void> _fetchAttendanceLogs() async {
+    final int engineerId = widget.fieldEngineer['id'];
+    final url =
+        'https://ecsmapappwebadminbackend-production.up.railway.app/api/FieldEngineer/$engineerId/attendance';
+
+    try {
+      final response = await http.get(Uri.parse(url));
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(response.body);
+        setState(() {
+          _attendanceLogs.clear();
+          for (var log in data) {
+            if (log['timeIn'] != null) {
+              _attendanceLogs.add(
+                AttendanceLog(
+                  time: DateTime.parse(log['timeIn']),
+                  status: 'Timed In',
+                ),
+              );
+            }
+            if (log['timeOut'] != null) {
+              _attendanceLogs.add(
+                AttendanceLog(
+                  time: DateTime.parse(log['timeOut']),
+                  status: 'Timed Out',
+                ),
+              );
+            }
+          }
+          _attendanceLogs.sort((a, b) => b.time.compareTo(a.time));
+        });
+      } else {
+        print('Failed to load logs: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Error fetching logs: $e');
+    }
+  }
+
+  Future<void> _checkClockInStatus() async {
+    final prefs = await SharedPreferences.getInstance();
+    final isClockedIn = prefs.getBool('isClockedIn') ?? false;
+    final fieldEngineerId = widget.fieldEngineer['id'];
+
+    if (isClockedIn) {
+      try {
+        // 🕒 Fetch latest attendance record from backend
+        final url =
+            'https://ecsmapappwebadminbackend-production.up.railway.app/api/FieldEngineer/$fieldEngineerId/attendance';
+        final response = await http.get(Uri.parse(url));
+
+        if (response.statusCode == 200) {
+          final List<dynamic> logs = json.decode(response.body);
+
+          // Find the most recent "Timed In" without a matching "Timed Out"
+          DateTime? lastTimeIn;
+          for (var log in logs) {
+            if (log['timeIn'] != null && log['timeOut'] == null) {
+              lastTimeIn = DateTime.parse(log['timeIn']);
+              break;
+            }
+          }
+
+          if (lastTimeIn != null) {
+            setState(() {
+              _isTimedIn = true;
+              _timeInTimestamp = lastTimeIn;
+            });
+            _startTimer();
+            await _locationService.start(fieldEngineerId);
+            print("🔄 Resumed background tracking since $lastTimeIn");
+          } else {
+            print("⚠️ No active time-in found — user may have already clocked out.");
+          }
+        } else {
+          print("❌ Failed to fetch attendance: ${response.statusCode}");
+        }
+      } catch (e) {
+        print("🔥 Error checking clock-in status: $e");
+      }
+    } else {
+      print("🛑 FE not clocked in — no background tracking resumed");
+    }
+  }
+
+
+
+
+
 
   @override
   Widget build(BuildContext context) {
@@ -202,11 +368,60 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
               ),
               textAlign: TextAlign.center,
             ),
-            CircleAvatar(
-              backgroundImage:  AssetImage('assets/profile.jpg')
-                      as ImageProvider,
-              radius: 20,
-            ),
+            GestureDetector(
+              onTap: () {
+                Navigator.push(
+                  context,
+                  PageRouteBuilder(
+                    pageBuilder: (context, animation, secondaryAnimation) => ProfileScreen(
+                      fieldEngineer: widget.fieldEngineer, // Pass the data here
+                    ),
+                    transitionsBuilder: (context, animation, secondaryAnimation, child) {
+                      const curve = Curves.easeInOut;
+
+                      var scaleTween = Tween(begin: 0.8, end: 1.0).chain(
+                        CurveTween(curve: curve),
+                      );
+
+                      var fadeTween = Tween(begin: 0.0, end: 1.0);
+
+                      return ScaleTransition(
+                        scale: animation.drive(scaleTween),
+                        child: FadeTransition(
+                          opacity: animation.drive(fadeTween),
+                          child: child,
+                        ),
+                      );
+                    },
+                  ),
+                );
+              },
+              child: Hero(
+                tag: 'profile_avatar',
+                child: Material(
+                  color: Colors.transparent,
+                  child: CircleAvatar(
+                      backgroundColor: Color.fromARGB(
+                        255,
+                        245,
+                        255,
+                        140,
+                      ),
+                      radius: 20,
+                      child: Text(
+                        widget.fieldEngineer['name'][0].toUpperCase(),
+                        style: const TextStyle(
+                          color: Colors.black,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 20,
+                        ),
+                      )
+                  ),
+                ),
+              ),
+            )
+
+
           ],
         ),
       ),
@@ -235,123 +450,66 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                         if (_isTimedIn && _timeInTimestamp != null)
                           _buildStatusDisplay(
                             'You are currently timed in since:',
+
                             DateFormat('hh:mm a').format(_timeInTimestamp!),
-                            Colors.orangeAccent,
-                          )
-                        else
+
+                            Colors.black,
+                          ),
+                        if (_isTimedIn && _timeInTimestamp != null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8.0),
+                            child: Text(
+                              'Elapsed Time: ${_formatDuration(_elapsedTime)}',
+                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                color: Colors.grey[700],
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        const SizedBox(height: 16),
+                        if (!_isTimedIn)
                           _buildStatusDisplay(
                             'You are currently timed out.',
-                            'Press button to time in.',
+                            'Please clock in to start.',
                             Colors.grey[600]!,
-                          ),
-                
+                          )
                       ],
                     ),
                   ),
                 ),
                 const SizedBox(height: 16),
                 // MATERIAL 3 SEGMENTED BUTTON
-                Container(
-                  decoration: BoxDecoration(
-                    color: Colors.grey[200],
-                    borderRadius: BorderRadius.circular(100),
-                  ),
-
-                  child: Row(
-                  
-                    children: [
-                      // TIME IN BUTTON
-                      Expanded(
-                        
-                        child: Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            onTap: !_isTimedIn ? _toggleTimeIn : null,
-                            borderRadius: BorderRadius.circular(100),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(vertical: 20),
-                              decoration: BoxDecoration(
-                                color: !_isTimedIn
-                                    ? colorScheme
-                                          .primary // Active - Yellow
-                                    : Colors.transparent, // Inactive
-                                borderRadius: BorderRadius.circular(100),
-                              ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    Icons.login,
-                                    color: !_isTimedIn
-                                        ? Colors.black87
-                                        : Colors.grey[600],
-                                    size: 20,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    'Clock In',
-                                    style: TextStyle(
-                                      height: 1.5,
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w600,
-                                      color: !_isTimedIn
-                                          ? Colors.black87
-                                          : Colors.grey[600],
-                                    ),
-                                  ),
-                                ],
-                              ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: SizedBox(
+                        height: 60,
+                        child: FilledButton.icon(
+                          onPressed: _toggleTimeIn,
+                          icon: Icon(
+                            _isTimedIn ? Icons.logout : Icons.login,
+                            color: _isTimedIn ? Colors.white : Colors.black87,
+                          ),
+                          label: Text(
+                            _isTimedIn ? 'Clock Out' : 'Clock In',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: _isTimedIn ? Colors.white : Colors.black87,
+                            ),
+                          ),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: _isTimedIn ? Colors.redAccent : colorScheme.primary,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(50),
                             ),
                           ),
                         ),
                       ),
-
-                      // TIME OUT BUTTON
-                      Expanded(
-                        child: Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            onTap: _isTimedIn ? _toggleTimeIn : null,
-                            borderRadius: BorderRadius.circular(100),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(vertical: 20),
-                              decoration: BoxDecoration(
-                                color: _isTimedIn
-                                    ? Colors
-                                          .orange[600] // Active - Orange for time out
-                                    : Colors.transparent, // Inactive
-                                borderRadius: BorderRadius.circular(100),
-                              ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    Icons.logout,
-                                    color: _isTimedIn
-                                        ? Colors.white
-                                        : Colors.grey[600],
-                                    size: 20,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    'Clock Out',
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w600,
-                                      color: _isTimedIn
-                                          ? Colors.white
-                                          : Colors.grey[600],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
+
 
                 const SizedBox(height: 28),
                 Text(
@@ -366,42 +524,39 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                 // Attendance Logs List
                 Expanded(
                   child: _attendanceLogs.isEmpty
-                      ? Center(
-                          child: Text(
-                            'No attendance logs yet.',
-                            style: TextStyle(color: Colors.white70),
-                          ),
-                        )
+                      ? const Center(
+                    child: Text(
+                      'No attendance logs yet.',
+                      style: TextStyle(color: Colors.white70),
+                    ),
+                  )
                       : ListView.builder(
-                          itemCount: _attendanceLogs.length,
-                          itemBuilder: (context, index) {
-                            final log = _attendanceLogs[index];
-                            final isTimeIn = log.status == 'Timed In';
-                            return Card(
-                              color: Colors.white,
-                              margin: const EdgeInsets.only(bottom: 8),
-                              child: ListTile(
-                                leading: Icon(
-                                  isTimeIn ? Icons.login : Icons.logout,
-                                  color: isTimeIn
-                                      ? Colors.green
-                                      : Colors.orange,
-                                ),
-                                title: Text(
-                                  log.status,
-                                  style: const TextStyle(color: Colors.black87),
-                                ),
-                                subtitle: Text(
-                                  DateFormat(
-                                    'MMMM dd, yyyy - hh:mm:ss a',
-                                  ).format(log.time),
-                                  style: TextStyle(color: Colors.grey[600]),
-                                ),
-                              ),
-                            );
-                          },
+                    itemCount: _attendanceLogs.length,
+                    itemBuilder: (context, index) {
+                      final log = _attendanceLogs[index];
+                      final isTimeIn = log.status == 'Timed In';
+                      return Card(
+                        color: Colors.white,
+                        margin: const EdgeInsets.only(bottom: 8),
+                        child: ListTile(
+                          leading: Icon(
+                            isTimeIn ? Icons.login : Icons.logout,
+                            color: isTimeIn ? Colors.green : Colors.redAccent,
+                          ),
+                          title: Text(
+                            log.status,
+                            style: const TextStyle(color: Colors.black87),
+                          ),
+                          subtitle: Text(
+                            DateFormat('MMMM dd, yyyy - hh:mm:ss a').format(log.time),
+                            style: TextStyle(color: Colors.grey[600]),
+                          ),
                         ),
+                      );
+                    },
+                  ),
                 ),
+
               ],
             ),
           ),
@@ -422,55 +577,63 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
       // CUSTOM FAB MENU with orange theme
       floatingActionButton: _isFabExpanded
           ? Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                // DTR Button
-                _buildFabMenuItem(
-                  onPressed: _showDTR,
-                  icon: Icons.access_time,
-                  label: 'DTR',
-                  color: colorScheme.secondary,
-                  textColor: Colors.black87,
-                ),
-                const SizedBox(height: 12),
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
 
-                // Profile Button
-                _buildFabMenuItem(
-                  onPressed: _showProfile,
-                  icon: Icons.person,
-                  label: 'Profile',
-                  color: colorScheme.secondary.withOpacity(0.8),
-                  textColor: Colors.black87,
-                ),
-                const SizedBox(height: 12),
+          // Terms and Conditions Button
+          _buildFabMenuItem(
+            onPressed: _showTermsAndCondition,
+            icon: Icons.newspaper,
+            label: 'Terms and Conditions',
+            color: colorScheme.secondary.withOpacity(0.8),
+            textColor: Colors.black87,
+          ),
+          const SizedBox(height: 12),
+          _buildFabMenuItem(
+            onPressed: _showTasks,
+            icon: Icons.checklist_rtl_rounded,
+            label: 'Daily Tasks',
+            color: colorScheme.secondary.withOpacity(0.9),
+            textColor: Colors.black87,
+          ),
+          const SizedBox(height: 12),
+          // DTR Button
+          _buildFabMenuItem(
+            onPressed: _showDTR,
+            icon: Icons.access_time,
+            label: 'DTR',
+            color: colorScheme.secondary,
+            textColor: Colors.black87,
+          ),
+          const SizedBox(height: 12),
 
-                // Logout Button
-                _buildFabMenuItem(
-                  onPressed: _logout,
-                  icon: Icons.logout,
-                  label: 'Logout',
-                  color: Colors.red[600]!,
-                  textColor: Colors.white,
-                ),
-                const SizedBox(height: 16),
+          // Logout Button
+          _buildFabMenuItem(
+            onPressed: _logout,
+            icon: Icons.logout,
+            label: 'Logout',
+            color: Colors.red[600]!,
+            textColor: Colors.white,
+          ),
+          const SizedBox(height: 16),
 
-                // Main FAB
-                FloatingActionButton.large(
-                  onPressed: _toggleFab,
-                  backgroundColor: Colors.white,
-                  foregroundColor: const Color(0xFF5e49e4),
-                  child: const Icon(Icons.close, color: Colors.black,size:32),
-                ),
-              ],
-            )
+          // Main FAB
+          FloatingActionButton.large(
+            onPressed: _toggleFab,
+            backgroundColor: Colors.white,
+            foregroundColor: const Color(0xFF5e49e4),
+            child: const Icon(Icons.close, color: Colors.black,size:32),
+          ),
+        ],
+      )
           : FloatingActionButton.large(
-              onPressed: _toggleFab,
-              shape: const CircleBorder(),
-              backgroundColor: colorScheme.primaryContainer,
-              foregroundColor: Colors.white,
-              child: const Icon(Icons.menu, color: Colors.black,size:32),
-            ),
+        onPressed: _toggleFab,
+        shape: const CircleBorder(),
+        backgroundColor: colorScheme.primaryContainer,
+        foregroundColor: Colors.white,
+        child: const Icon(Icons.menu, color: Colors.black,size:32),
+      ),
     );
   }
 
@@ -496,9 +659,18 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     );
   }
 
+  //helper function to format duration
+  String _formatDuration(Duration duration) {
+    String twoDigits(int n) => n.toString().padLeft(2, '0');
+    final hours = twoDigits(duration.inHours);
+    final minutes = twoDigits(duration.inMinutes.remainder(60));
+    final seconds = twoDigits(duration.inSeconds.remainder(60));
+    return '$hours:$minutes:$seconds';
+  }
+
   // Custom FAB menu item widget
   Widget _buildFabMenuItem({
-    
+
     required VoidCallback onPressed,
     required IconData icon,
     required String label,
