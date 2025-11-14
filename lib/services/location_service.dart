@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ui';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:location/location.dart' as loc;
@@ -20,6 +21,11 @@ Future<bool> onIosBackground(ServiceInstance service) async {
 void onStart(ServiceInstance service) async {
   DartPluginRegistrant.ensureInitialized();
 
+  // ✅ Reapply TLS override for background isolate
+  HttpOverrides.global = MyHttpOverrides();
+  SecurityContext.defaultContext.allowLegacyUnsafeRenegotiation = true;
+  print("⚙️ Background isolate: legacy TLS override applied.");
+
 
 
   List<Map<String, dynamic>> locationBuffer = [];
@@ -32,9 +38,10 @@ void onStart(ServiceInstance service) async {
   DateTime lastSentTime = DateTime.now();
 
   // --- CONFIG ---
-  const double MIN_DISTANCE_METERS = 3; //25
-  const Duration MIN_TIME_INTERVAL = Duration(seconds: 60); //30
-  const int MAX_BATCH_SIZE = 8;
+  const double MIN_DISTANCE_METERS = 25; //25
+  const Duration MIN_TIME_INTERVAL = Duration(seconds: 30); //30
+  const int MAX_BATCH_SIZE = 20;
+
 
 
   // --- SEND LIVE LOCATION (every 10s for real-time admin map) ---
@@ -43,7 +50,7 @@ void onStart(ServiceInstance service) async {
 
     try {
       final url = Uri.parse(
-          'https://ecsmapappwebadminbackend-production.up.railway.app/api/FieldEngineer/updateLocation');
+          'https://sdstestwebservices.equicom.com/dorotiserver/api/FieldEngineer/updateLocation');
       final response = await http.post(
         url,
         headers: {'Content-Type': 'application/json'},
@@ -53,7 +60,7 @@ void onStart(ServiceInstance service) async {
           'currentLongitude': locationData['longitude'],
           'isActive': true,
           'isMoving':
-          locationData['speed'] != null && locationData['speed'] > 0.5,
+          locationData['speed'] != null && locationData['speed'] > 0.83, // 3 km/h = 0.83 m/s,
         }),
       );
       if (response.statusCode == 200) {
@@ -98,10 +105,13 @@ void onStart(ServiceInstance service) async {
     final sample = jsonEncode(batchToSend.take(1).toList());
     print("🔍 Sample payload: $sample");
 
+    print("⏰ Current timestamp being sent: ${batchToSend.first['timestamp']}");
+    print("📅 Expected format: ${DateTime.now().toUtc().toIso8601String()}");
+
     // --- 4️⃣ Attempt to send batch ---
     try {
       final url = Uri.parse(
-          'https://ecsmapappwebadminbackend-production.up.railway.app/api/Location');
+          'https://sdstestwebservices.equicom.com/dorotiserver/api/Location');
 
       final response = await http.post(
         url,
@@ -112,6 +122,9 @@ void onStart(ServiceInstance service) async {
       // --- 5️⃣ Handle response codes cleanly ---
       if (response.statusCode == 200) {
         print("✅ [sendLocationHistory] Successfully sent ${batchToSend.length} points for FE #$fieldEngineerId");
+
+        //print each point sent
+
       } else {
         print("❌ [sendLocationHistory] Failed with status ${response.statusCode}");
         print("🧾 Server response: ${response.body}");
@@ -127,6 +140,61 @@ void onStart(ServiceInstance service) async {
       // --- Reinsert points to buffer so they’re not lost ---
       locationBuffer.insertAll(0, batchToSend);
       print("💾 Buffered ${batchToSend.length} points for next retry.");
+    }
+  }
+
+  //cache unsent location points when offline or API fails
+  Future<void> _cacheUnsentPoint(Map<String, dynamic> point) async{
+    final prefs = await SharedPreferences.getInstance();
+    final cached = prefs.getStringList('unsent_points') ?? [];
+    cached.add(jsonEncode(point));
+    await prefs.setStringList('unsent_points', cached);
+    print("💾 Cached unsent point. Total cached: ${cached.length}");
+  }
+
+  //Retry sending cached points if connection is back
+  Future<void> _retryCachedPoints() async {
+    final prefs = await SharedPreferences.getInstance();
+    final cached = prefs.getStringList('unsent_points') ?? [];
+    if (cached.isEmpty) return;
+    print("🔄 Retrying ${cached.length} cached points...");
+    print("🗂 Cached points: $cached");
+
+    final stillFailed = <String>[];
+    for (final raw in cached) {
+      final point = jsonDecode(raw);
+
+      // Validate and add FieldEngineerId
+      if (fieldEngineerId == null || fieldEngineerId == 0) {
+        print("⚠️ Skipping point — missing FieldEngineerId.");
+        continue;
+      }
+      point['fieldEngineerId'] = fieldEngineerId;
+
+      try {
+        final res = await http.post(
+          Uri.parse('https://sdstestwebservices.equicom.com/dorotiserver/api/Location'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode([point]),
+        );
+
+        if (res.statusCode == 200 || res.statusCode == 201) {
+          print("✅ Cached point sent successfully.");
+        } else {
+          print("❌ Failed to send cached point: ${res.body}");
+          stillFailed.add(raw);
+        }
+      } catch (e) {
+        print("🔥 Error sending cached point: $e");
+        stillFailed.add(raw);
+      }
+    }
+
+    await prefs.setStringList('unsent_points', stillFailed);
+    if (stillFailed.isEmpty) {
+      print('🎉 All cached points synced successfully!');
+    } else {
+      print('🟠 ${stillFailed.length} points still pending retry.');
     }
   }
 
@@ -167,8 +235,8 @@ void onStart(ServiceInstance service) async {
     // --- Update foreground notification ---
     if (service is AndroidServiceInstance) {
       service.setForegroundNotificationInfo(
-        title: "Dorothy Tracking Active",
-        content: "Monitoring movements for trip detection",
+        title: "DOROTI",
+        content: "Good day to you!",
       );
     }
   });
@@ -184,6 +252,14 @@ void onStart(ServiceInstance service) async {
     print("🛑 Stopping background service...");
     batchTimer?.cancel();
     liveUpdateTimer?.cancel();
+    if (locationBuffer.isNotEmpty) {
+      for (final point in locationBuffer) {
+        await _cacheUnsentPoint(point);
+      }
+      locationBuffer.clear();
+      print("💾 Merged buffer points into cache on stop.");
+    }
+
     if (locationBuffer.isNotEmpty) await sendLocationHistory();
     service.stopSelf();
   });
@@ -207,11 +283,14 @@ void onStart(ServiceInstance service) async {
   });
 
   // --- Force-send unsent batches every 2 minutes ---
-  batchTimer = Timer.periodic(const Duration(minutes: 2), (timer) {
-    sendLocationHistory();
+  batchTimer = Timer.periodic(const Duration(minutes: 2), (timer) async {
+    await _retryCachedPoints();
+    await sendLocationHistory();
   });
 
   print("🚀 Dorothy background tracking started!");
+  await _retryCachedPoints();
+
   print("📍 Live update: every 10s");
   print("📦 Batch upload: smart-filtered + every 2min");
 }
@@ -277,12 +356,12 @@ class LocationService {
   Future<void> _startLocationTracking() async {
     try {
       loc.LocationData? lastSentLocation;
-      const double minMovementMeters = 10.0; // don't send if <10m moved
+      const double minMovementMeters = 25.0; // don't send if <10m moved
 
       await _location!.changeSettings(
         accuracy: loc.LocationAccuracy.high,
-        interval: 5000, // 5 seconds between raw updates
-        distanceFilter: 0, // let us handle movement filtering manually
+        interval: 10000, // 10 seconds between raw updates
+        distanceFilter: 15, // let us handle movement filtering manually
       );
 
       _locationSubscription = _location!.onLocationChanged.listen(
@@ -307,22 +386,33 @@ class LocationService {
           }
 
           if (shouldSend) {
+
+            //Normalize filter speed
+            double rawSpeed = currentLocation.speed ?? 0.0; //m/s
+            double speedKmh = rawSpeed * 3.6; // convert to km/h
+
+            //treat small GPS noise (< kmh/5) as stationary
+            if (speedKmh < 5) speedKmh = 0;
+
+            //round to 1 decimal place
+            speedKmh = double.parse(speedKmh.toStringAsFixed(1));
+            final phtTime = DateTime.now().toUtc().add(Duration(hours: 8));
             final locationPoint = {
               'latitude': currentLocation.latitude,
               'longitude': currentLocation.longitude,
-              'speed': currentLocation.speed ?? 0.0,
+              'speed': speedKmh,
               'accuracy': currentLocation.accuracy ?? 0.0,
-              'timestamp': DateTime.now().toUtc().toIso8601String(),
+              'timestamp': phtTime.toIso8601String().replaceAll('Z', '+08:00'),
             };
 
-            print("📍 Sent (${movedDistance.toStringAsFixed(1)}m): "
+            print("🟢 Sent (${movedDistance.toStringAsFixed(1)}m): "
                 "${currentLocation.latitude?.toStringAsFixed(6)}, "
                 "${currentLocation.longitude?.toStringAsFixed(6)}");
 
             _backgroundService.invoke('location_update', {'data': locationPoint});
             lastSentLocation = currentLocation;
           } else {
-            print("⏸ Skipped (${movedDistance.toStringAsFixed(1)}m) — not enough movement");
+            print("⚪ Skipped (${movedDistance.toStringAsFixed(1)}m) — not enough movement");
           }
         },
         onError: (error) {
@@ -346,6 +436,20 @@ class LocationService {
     _locationSubscription?.cancel();
     _heartbeatTimer?.cancel();
     _backgroundService.invoke('stopService');
+  }
+}
+
+
+class MyHttpOverrides extends HttpOverrides {
+  @override
+  HttpClient createHttpClient(SecurityContext? context) {
+    final client = super.createHttpClient(context);
+    client.badCertificateCallback =
+        (X509Certificate cert, String host, int port) {
+      print("⚠️ Accepting certificate from $host (background isolate)");
+      return true;
+    };
+    return client;
   }
 }
 

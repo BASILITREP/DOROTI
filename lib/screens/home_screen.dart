@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:developer';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:async';
@@ -47,6 +48,14 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   late Animation<double> _fabScaleAnimation;
   Duration _elapsedTime = Duration.zero;
   Timer? _timer;
+
+  DateTime parseServerTime(String dateString) {
+    final parsed = DateTime.parse(dateString);
+    // Backend sends UTC but without 'Z', so manually correct it
+    final corrected = parsed.subtract(const Duration(hours: 8));
+    return corrected;
+  }
+
 
   @override
   void initState() {
@@ -176,17 +185,40 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     );
   }
 
-  void _logout()  {
+  void _logout() {
     _toggleFab(); // Close FAB first
+
+    // Prevent logout if user is still clocked in
+    if (_isTimedIn) {
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Cannot Logout', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+          content: const Text(
+            'You are currently clocked in. Please clock out before logging out.',
+            style: TextStyle(color: Colors.black),
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    // Existing logout confirmation dialog (unchanged)
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Logout'),
-        content: const Text('Are you sure you want to logout?'),
+        title: const Text('Logout', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+        content: const Text('Are you sure you want to logout?', style: TextStyle(color: Colors.black)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: const Text('Cancel', style: TextStyle(color: Colors.black)),
           ),
           FilledButton(
             onPressed: () async {
@@ -195,12 +227,29 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                 _locationService.stop();
               }
 
+              // Clear local storage
               final prefs = await SharedPreferences.getInstance();
-              await prefs.setBool('isClockedIn', false); // ✅ ensure reset
-              await prefs.remove('fieldEngineerId'); // optional but clean
+              await prefs.setBool('isClockedIn', false);
+              await prefs.remove('fieldEngineerId');
 
-              Navigator.pop(context); // Close dialog
-              Navigator.pop(context); // Go back to login
+              // Notify backend (optional)
+              try {
+                await http.post(
+                  Uri.parse(
+                    'https://sdstestwebservices.equicom.com/dorotiserver/api/FieldEngineer/${widget.fieldEngineer['id']}/logout',
+                  ),
+                );
+              } catch (e) {
+                debugPrint('Logout error: $e');
+              }
+
+              // ✅ Close dialog and navigate safely back to login
+              if (context.mounted) {
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (context) => const LoginPage()),
+                      (Route<dynamic> route) => false,
+                );
+              }
             },
             child: const Text('Logout'),
           ),
@@ -209,14 +258,46 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     );
   }
 
+
   Future<void> _toggleTimeIn() async {
     final int engineerId = widget.fieldEngineer['id'];
     final bool isClockingIn = !_isTimedIn;
     final now = DateTime.now();
 
+    // If user is trying to clock OUT, ask for confirmation first
+    if (!isClockingIn) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text(
+            'Confirm',
+            style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
+          ),
+          content: const Text(
+            'Are you sure you want to clock out?',
+            style: TextStyle(color: Colors.black),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel', style: TextStyle(color: Colors.black)),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Yes'),
+            ),
+          ],
+        ),
+      );
+
+      if (confirmed != true) {
+        return; // user cancelled clock out
+      }
+    }
+
     final url = isClockingIn
-        ? 'https://ecsmapappwebadminbackend-production.up.railway.app/api/FieldEngineer/$engineerId/clockin'
-        : 'https://ecsmapappwebadminbackend-production.up.railway.app/api/FieldEngineer/$engineerId/clockout';
+        ? 'https://sdstestwebservices.equicom.com/dorotiserver/api/FieldEngineer/$engineerId/clockin'
+        : 'https://sdstestwebservices.equicom.com/dorotiserver/api/FieldEngineer/$engineerId/clockout';
 
     try {
       final response = await http.post(Uri.parse(url));
@@ -234,6 +315,10 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
             _locationService.stop();
           }
         });
+
+        // Persist clock-in status for resume logic
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('isClockedIn', isClockingIn);
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -257,36 +342,43 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     }
   }
 
+
   Future<void> _fetchAttendanceLogs() async {
     final int engineerId = widget.fieldEngineer['id'];
     final url =
-        'https://ecsmapappwebadminbackend-production.up.railway.app/api/FieldEngineer/$engineerId/attendance';
+        'https://sdstestwebservices.equicom.com/dorotiserver/api/FieldEngineer/$engineerId/attendance';
 
     try {
       final response = await http.get(Uri.parse(url));
 
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
+
         setState(() {
           _attendanceLogs.clear();
+
           for (var log in data) {
+            // Parse and convert to PH time (UTC+8)
+            DateTime? timeIn;
+            DateTime? timeOut;
+
             if (log['timeIn'] != null) {
+              timeIn = parseServerTime(log['timeIn']);
               _attendanceLogs.add(
-                AttendanceLog(
-                  time: DateTime.parse(log['timeIn']),
-                  status: 'Timed In',
-                ),
+                AttendanceLog(time: timeIn, status: 'Timed In'),
               );
             }
+
             if (log['timeOut'] != null) {
+              timeOut = parseServerTime(log['timeOut']);
               _attendanceLogs.add(
-                AttendanceLog(
-                  time: DateTime.parse(log['timeOut']),
-                  status: 'Timed Out',
-                ),
+                AttendanceLog(time: timeOut, status: 'Timed Out'),
               );
             }
+
+
           }
+
           _attendanceLogs.sort((a, b) => b.time.compareTo(a.time));
         });
       } else {
@@ -297,6 +389,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     }
   }
 
+
   Future<void> _checkClockInStatus() async {
     final prefs = await SharedPreferences.getInstance();
     final isClockedIn = prefs.getBool('isClockedIn') ?? false;
@@ -304,19 +397,18 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
 
     if (isClockedIn) {
       try {
-        // 🕒 Fetch latest attendance record from backend
         final url =
-            'https://ecsmapappwebadminbackend-production.up.railway.app/api/FieldEngineer/$fieldEngineerId/attendance';
+            'https://sdstestwebservices.equicom.com/dorotiserver/api/FieldEngineer/$fieldEngineerId/attendance';
         final response = await http.get(Uri.parse(url));
 
         if (response.statusCode == 200) {
           final List<dynamic> logs = json.decode(response.body);
 
-          // Find the most recent "Timed In" without a matching "Timed Out"
           DateTime? lastTimeIn;
           for (var log in logs) {
             if (log['timeIn'] != null && log['timeOut'] == null) {
-              lastTimeIn = DateTime.parse(log['timeIn']);
+              lastTimeIn = parseServerTime(log['timeIn']); // ✅ FIX HERE
+
               break;
             }
           }
@@ -342,6 +434,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
       print("🛑 FE not clocked in — no background tracking resumed");
     }
   }
+
 
 
 
@@ -409,7 +502,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                       ),
                       radius: 20,
                       child: Text(
-                        widget.fieldEngineer['name'][0].toUpperCase(),
+                        (widget.fieldEngineer['firstName'] ?? 'U')[0].toUpperCase(),
                         style: const TextStyle(
                           color: Colors.black,
                           fontWeight: FontWeight.bold,
@@ -548,8 +641,9 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                             style: const TextStyle(color: Colors.black87),
                           ),
                           subtitle: Text(
-                            DateFormat('MMMM dd, yyyy - hh:mm:ss a').format(log.time),
-                            style: TextStyle(color: Colors.grey[600]),
+                              DateFormat('MMMM dd, yyyy - hh:mm:ss a').format(log.time),
+
+                              style: TextStyle(color: Colors.grey[600]),
                           ),
                         ),
                       );

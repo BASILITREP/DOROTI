@@ -1,23 +1,31 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools"> <!-- ✅ Added tools namespace -->
-
+    xmlns:tools="http://schemas.android.com/tools">
+    <!-- ✅ Added tools namespace -->
     <!-- ✅ Permissions -->
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <uses-permission android:name="android.permission.VIBRATE" />
-    <uses-permission android:name="android.permission.USE_BIOMETRICS" />
-    <uses-permission android:name="android.permission.USE_FINGERPRINT" />
-
+    <uses-permission
+        android:name="android.permission.INTERNET"/>
+    <uses-permission
+        android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission
+        android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission
+        android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission
+        android:name="android.permission.ACCESS_BACKGROUND_LOCATION"/>
+    <uses-permission
+        android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission
+        android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission
+        android:name="android.permission.VIBRATE"/>
+    <uses-permission
+        android:name="android.permission.USE_BIOMETRICS"/>
+    <uses-permission
+        android:name="android.permission.USE_FINGERPRINT"/>
     <application
         android:label="DOROTI"
         android:name="${applicationName}"
         android:icon="@mipmap/equicom">
-
         <!-- ✅ Main Activity -->
         <activity
             android:name=".MainActivity"
@@ -27,47 +35,47 @@
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
-
             <meta-data
                 android:name="io.flutter.embedding.android.NormalTheme"
-                android:resource="@style/NormalTheme" />
-
+                android:resource="@style/NormalTheme"/>
             <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
-
         <!-- ✅ Firebase Messaging Service -->
         <service
             android:name="io.flutter.plugins.firebase.messaging.FlutterFirebaseMessagingService"
             android:exported="false">
             <intent-filter>
-                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+                <action
+                    android:name="com.google.firebase.MESSAGING_EVENT"/>
             </intent-filter>
         </service>
-
         <!-- ✅ Background Location Service (fixed conflict) -->
         <service
             android:name="id.flutter.flutter_background_service.BackgroundService"
             android:exported="true"
-        android:foregroundServiceType="location"
-        tools:replace="android:exported" /> <!-- ✅ fixes manifest merger issue -->
-
+            android:foregroundServiceType="location"
+            tools:replace="android:exported"/>
+        <!-- ✅ fixes manifest merger issue -->
         <meta-data
             android:name="flutterEmbedding"
-            android:value="2" />
+            android:value="2"/>
     </application>
-
     <!-- ✅ Required for deep links, etc. -->
     <queries>
         <intent>
-            <action android:name="android.intent.action.VIEW" />
-            <data android:scheme="https" />
+            <action
+                android:name="android.intent.action.VIEW"/>
+            <data
+                android:scheme="https"/>
         </intent>
         <intent>
-            <action android:name="android.intent.action.DIAL" />
-            <data android:scheme="tel" />
+            <action
+                android:name="android.intent.action.DIAL"/>
+            <data
+                android:scheme="tel"/>
         </intent>
     </queries>
 </manifest>

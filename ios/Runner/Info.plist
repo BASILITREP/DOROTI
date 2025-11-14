@@ -50,28 +50,24 @@
 		<key>UIViewControllerBasedStatusBarAppearance</key>
 		<false/>
 		<key>NSLocationWhenInUseUsageDescription</key>
-        <string>We use your location to track your field activity while you are on duty.</string>
-
-        <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-        <string>We use your location to track your field activity even when the app is in the background.</string>
-
-        <key>NSLocationAlwaysUsageDescription</key>
-        <string>Your location is required for real-time map updates and attendance logging.</string>
-
-        <key>UIBackgroundModes</key>
-        <array>
-            <string>location</string>
-            <string>fetch</string>
-        </array>
-
-        <key>NSMotionUsageDescription</key>
-        <string>This is used to detect movement and improve location accuracy.</string>
-        <key>NSLocationTemporaryUsageDescriptionDictionary</key>
-        <dict>
-          <key>BackgroundTracking</key>
-          <string>We need your precise location even in the background to update your status in real time.</string>
-        </dict>
-        <key>NSLocationDefaultAccuracyReduced</key>
-        <string>We require precise location to monitor your field activity accurately.</string>
+		<string>We use your location to track your field activity while you are on duty.</string>
+		<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+		<string>We use your location to track your field activity even when the app is in the background.</string>
+		<key>NSLocationAlwaysUsageDescription</key>
+		<string>Your location is required for real-time map updates and attendance logging.</string>
+		<key>UIBackgroundModes</key>
+		<array>
+			<string>location</string>
+			<string>fetch</string>
+		</array>
+		<key>NSMotionUsageDescription</key>
+		<string>This is used to detect movement and improve location accuracy.</string>
+		<key>NSLocationTemporaryUsageDescriptionDictionary</key>
+		<dict>
+			<key>BackgroundTracking</key>
+			<string>We need your precise location even in the background to update your status in real time.</string>
+		</dict>
+		<key>NSLocationDefaultAccuracyReduced</key>
+		<string>We require precise location to monitor your field activity accurately.</string>
 	</dict>
 </plist>

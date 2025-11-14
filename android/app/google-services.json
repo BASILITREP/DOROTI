@@ -1,32 +1,13 @@
 {
   "project_info": {
-    "project_number": "161206561416",
-    "project_id": "pearl-24846",
-    "storage_bucket": "pearl-24846.firebasestorage.app"
+    "project_number": "831871600625",
+    "project_id": "doroti-fe",
+    "storage_bucket": "doroti-fe.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:161206561416:android:7a929464bbd6bac3d2cd3d",
-        "android_client_info": {
-          "package_name": "com.equicom.pearlisms"
-        }
-      },
-      "oauth_client": [],
-      "api_key": [
-        {
-          "current_key": "AIzaSyArZv7MHDZD5yhVxwOEA9ceOO1VbODJ8fI"
-        }
-      ],
-      "services": {
-        "appinvite_service": {
-          "other_platform_oauth_client": []
-        }
-      }
-    },
-    {
-      "client_info": {
-        "mobilesdk_app_id": "1:161206561416:android:0030b1d0d9fdfaa0d2cd3d",
+        "mobilesdk_app_id": "1:831871600625:android:2b9293021d5641e8482650",
         "android_client_info": {
           "package_name": "com.example.app_app_test"
         }
@@ -34,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyArZv7MHDZD5yhVxwOEA9ceOO1VbODJ8fI"
+          "current_key": "AIzaSyAn_HH02BKcBhPyuKhW7BKUJD_zou32vIQ"
         }
       ],
       "services": {

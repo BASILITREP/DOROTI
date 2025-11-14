@@ -50,7 +50,7 @@ class ProfileScreen extends StatelessWidget {
                     ),
                     radius: 50,
                     child: Text(
-                      fieldEngineer['name'][0].toUpperCase(),
+                      fieldEngineer['firstName'][0].toUpperCase(),
                       style: const TextStyle(
                         color: Colors.black,
                         fontWeight: FontWeight.bold,
@@ -61,7 +61,7 @@ class ProfileScreen extends StatelessWidget {
               ),
               const SizedBox(height: 24),
               Text(
-                fieldEngineer['name'] ?? 'N/A',
+                fieldEngineer['firstName'] ?? 'N/A',
                 style: GoogleFonts.outfit(
                   fontSize: 28,
                   fontWeight: FontWeight.bold,
@@ -93,8 +93,8 @@ class ProfileScreen extends StatelessWidget {
               const SizedBox(height: 12),
               _buildInfoCard(
                 context,
-                'Position',
-                fieldEngineer['position'] ?? 'Field Engineer',
+                'Last Name',
+                fieldEngineer['lastName'] ?? 'Field Engineer',
                 Icons.work,
               ),
             ],

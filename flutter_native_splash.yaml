@@ -1,20 +1,10 @@
-# pubspec.yaml (PARA SA VERSION 2.4.6)
 flutter_native_splash:
-  # Gagamit tayo ng solid color dahil wala pang 'fill' support
-  color: "#EDE9E8" 
-  
-  # Ang iyong main logo
-  image: assets/equicomLogo_sm.png
-  
-  # Para hindi ma-stretch ang logo
+  color: "#EDE9E8" # Background color
+  image: assets/ecs_logo_woop.png # New logo from Canva (see below)
   android_gravity: center
-  ios_content_mode: scaleAspectFit # Para hindi maputol ang logo
-  
-  # ----- Correct settings for Android 12 -----
+  ios_content_mode: scaleAspectFit
+
   android_12:
     color: "#EDE9E8"
-    
-    # Tandaan: dapat square logo pa rin dito
-    image: assets/equicomLogo_sm.png
-
+    image: assets/ecs_logo_woop.png
     icon_background_color: "#EDE9E8"

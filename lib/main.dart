@@ -1,20 +1,20 @@
-// lib/main.dart
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
+import 'firebase_options.dart';
 import 'screens/login_screen.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'services/location_service.dart';
-import 'package:shared_preferences/shared_preferences.dart'; // ⭐ Needed for clocked-in check
+import 'package:shared_preferences/shared_preferences.dart';
 
-// Top-level function for background message handling
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  await Firebase.initializeApp();
-  print('Handling a background message: ${message.messageId}');
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  print('📩 Background message: ${message.messageId}');
 }
 
 Future<void> initializeNotifications() async {
@@ -25,7 +25,7 @@ Future<void> initializeNotifications() async {
     'dorothy_location_service',
     'DOROTHY Location Service',
     description: 'Notification channel for location tracking service.',
-    importance: Importance.low, // Use low importance to avoid sound
+    importance: Importance.low,
   );
 
   await flutterLocalNotificationsPlugin
@@ -37,14 +37,64 @@ Future<void> initializeNotifications() async {
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // 🧩 Enable legacy TLS renegotiation (for old Equicom servers)
+  final context = SecurityContext.defaultContext;
+  context.allowLegacyUnsafeRenegotiation = true;
+  HttpOverrides.global = MyHttpOverrides(); // 👈 applies globally
+  print("⚠️ Legacy TLS renegotiation enabled — internal build mode.");
+
   await setup();
-  await Firebase.initializeApp();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await initializeNotifications();
-  await LocationService().initialize(); // ✅ Prepare background service
+  await LocationService().initialize();
 
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
-  // ⭐ NEW: Auto-resume tracking if still clocked in
+  // 🔔 Ask permission and get token
+  final messaging = FirebaseMessaging.instance;
+  NotificationSettings settings = await messaging.requestPermission(
+    alert: true,
+    badge: true,
+    sound: true,
+  );
+  print('🔔 Notification permission: ${settings.authorizationStatus}');
+  final token = await messaging.getToken();
+  print('📱 Device FCM Token: $token');
+
+  // 🔁 Automatically handle token refresh
+  FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
+    print('🔄 FCM token refreshed: $newToken');
+
+    // Optionally, store it locally so you can send it to the backend again on next login
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('latestFcmToken', newToken);
+  });
+
+
+  // Foreground notification listener
+  FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+    print('📲 Foreground message: ${message.notification?.title}');
+    final notification = message.notification;
+    if (notification != null) {
+      final flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
+      flutterLocalNotificationsPlugin.show(
+        notification.hashCode,
+        notification.title,
+        notification.body,
+        const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'dorothy_channel',
+            'Dorothy Notifications',
+            icon: '@mipmap/equicom',
+            importance: Importance.max,
+            priority: Priority.high,
+          ),
+        ),
+      );
+    }
+  });
+
+  // Auto resume background service
   final prefs = await SharedPreferences.getInstance();
   final isClockedIn = prefs.getBool('isClockedIn') ?? false;
   final fieldEngineerId = prefs.getInt('fieldEngineerId');
@@ -69,9 +119,8 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Custom colors - UPDATED
-    const primaryColor = Color.fromARGB(255, 116, 109, 241); // Deep purple
-    const accentColor = Color.fromARGB(255, 245, 255, 140); // Yellow-green
+    const primaryColor = Color.fromARGB(255, 116, 109, 241);
+    const accentColor = Color.fromARGB(255, 245, 255, 140);
 
     return MaterialApp(
       title: 'Dorothy',
@@ -90,40 +139,27 @@ class MyApp extends StatelessWidget {
           secondary: accentColor.withOpacity(0.8),
           tertiary: accentColor.withOpacity(0.6),
         ),
-        filledButtonTheme: FilledButtonThemeData(
-          style: FilledButton.styleFrom(
-            backgroundColor: accentColor,
-            foregroundColor: Colors.black87,
-          ),
-        ),
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: accentColor,
-            foregroundColor: Colors.black87,
-          ),
-        ),
-        floatingActionButtonTheme: FloatingActionButtonThemeData(
-          backgroundColor: accentColor,
-          foregroundColor: Colors.black87,
-        ),
-        appBarTheme: AppBarTheme(
-          backgroundColor: primaryColor,
-          foregroundColor: Colors.white,
-          elevation: 0,
-        ),
-        cardTheme: CardThemeData(
-          color: Colors.white,
-          elevation: 4,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
+        textTheme: GoogleFonts.outfitTextTheme().apply(
+          bodyColor: Colors.white,
+          displayColor: Colors.white,
         ),
         scaffoldBackgroundColor: primaryColor,
-        textTheme: GoogleFonts.outfitTextTheme(
-          ThemeData(brightness: Brightness.light).textTheme,
-        ).apply(bodyColor: Colors.white, displayColor: Colors.white),
       ),
       home: const LoginPage(),
     );
+  }
+}
+
+class MyHttpOverrides extends HttpOverrides {
+  @override
+  HttpClient createHttpClient(SecurityContext? context) {
+    final client = super.createHttpClient(context);
+    client.badCertificateCallback =
+        (X509Certificate cert, String host, int port) {
+      // Allow self-signed or legacy certs — but still log them
+      print("⚠️ Accepting certificate from $host");
+      return true;
+    };
+    return client;
   }
 }
