@@ -7,7 +7,7 @@ import 'home_screen.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:location/location.dart' as loc;
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 
 class LoginPage extends StatefulWidget {
@@ -25,6 +25,7 @@ class _LoginPageState extends State<LoginPage> {
   bool _isDeviceSupported = false;
   bool _hasQuickLoginData = false;
   bool _isPasswordVisible = false;
+  final apiUrl = dotenv.env['API_URL'];
 
 
   @override
@@ -44,7 +45,7 @@ class _LoginPageState extends State<LoginPage> {
       if (savedId != null) {
         try {
           final response = await http.post(
-            Uri.parse('https://sdstestwebservices.equicom.com/dorotiserver/api/FieldEngineer/loginsync'),
+            Uri.parse('$apiUrl/FieldEngineer/loginsync'),
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode({
               'userId': int.parse(savedId),
@@ -66,42 +67,23 @@ class _LoginPageState extends State<LoginPage> {
     await _checkDeviceSupported();
     final storage = const FlutterSecureStorage();
     final savedEmail = await storage.read(key: 'last_email');
+    final savedPassword = await storage.read(key: 'last_password');
+
     if (savedEmail != null) {
       _emailController.text = savedEmail;
+    }
+
+    if (savedPassword != null) {
+      _passwordController.text = savedPassword;
+    }
+
+    if (savedEmail != null && savedPassword != null) {
       setState(() {
         _hasQuickLoginData = true;
       });
     }
   }
 
-  // Future<void> sendInitialLocation(int fieldEngineerId) async {
-  //   try {
-  //     final location = loc.Location();
-  //     final current = await location.getLocation();
-  //
-  //     final res = await http.post(
-  //       Uri.parse(
-  //         'https://ecsmapappwebadminbackend-production.up.railway.app/api/FieldEngineer/updateLocation',
-  //       ),
-  //       headers: {'Content-Type': 'application/json'},
-  //       body: jsonEncode({
-  //         'id': fieldEngineerId,
-  //         'currentLatitude': current.latitude,
-  //         'currentLongitude': current.longitude,
-  //         'isActive': true,
-  //         'isMoving': false,
-  //       }),
-  //     );
-  //
-  //     if (res.statusCode == 200) {
-  //       print('✅ Initial location sent after login');
-  //     } else {
-  //       print('⚠️ Initial location failed: ${res.statusCode}');
-  //     }
-  //   } catch (e) {
-  //     print('🔥 Error sending initial location: $e');
-  //   }
-  // }
 
   Future<void> _login() async {
     final email = _emailController.text.trim();
@@ -120,7 +102,7 @@ class _LoginPageState extends State<LoginPage> {
       // 🔹 Step 1: Get all engineers and find the matching email
       final engineerRes = await http.get(
         Uri.parse(
-          'https://sdstestwebservices.equicom.com/dorotiserver/api/FieldEngineer',
+          '$apiUrl/FieldEngineer',
         ),
         headers: {'Content-Type': 'application/json'},
       );
@@ -156,7 +138,7 @@ class _LoginPageState extends State<LoginPage> {
       // 🔹 Step 3: POST to backend login-sync with password
       final response = await http.post(
         Uri.parse(
-          'https://sdstestwebservices.equicom.com/dorotiserver/api/FieldEngineer/$userId/login-sync',
+          '$apiUrl/FieldEngineer/$userId/login-sync',
         ),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
@@ -237,143 +219,6 @@ class _LoginPageState extends State<LoginPage> {
 
 
 
-
-  // Future<void> _login() async {
-  //   if (_emailController.text.isEmpty) {
-  //     ScaffoldMessenger.of(
-  //       context,
-  //     ).showSnackBar(const SnackBar(content: Text('Please enter an email')));
-  //     return;
-  //   }
-  //
-  //   setState(() {
-  //     isLoading = true;
-  //   });
-  //
-  //   try {
-  //     final response = await http.get(
-  //       Uri.parse(
-  //           'https://ecsmapappwebadminbackend-production.up.railway.app/api/FieldEngineer'
-  //         //     'http://192.168.1.2:5242/api/FieldEngineer',
-  //
-  //       ),
-  //       headers: {'Content-Type': 'application/json'},
-  //     );
-  //
-  //     if (!mounted) return;
-  //
-  //     if (response.statusCode == 200) {
-  //       final List<dynamic> engineers = json.decode(response.body);
-  //       final engineer = engineers.firstWhere(
-  //             (eng) =>
-  //         eng['email'].toLowerCase() == _emailController.text.toLowerCase(),
-  //         orElse: () => null,
-  //       );
-  //
-  //       if (engineer != null) {
-  //         bool authenticated = false;
-  //         try {
-  //           authenticated = await auth.authenticate(
-  //             localizedReason: 'Please authenticate to log in to DOROTI',
-  //             options: const AuthenticationOptions(
-  //                 biometricOnly: false,
-  //                 useErrorDialogs: true,
-  //                 stickyAuth: true
-  //             ),
-  //
-  //           );
-  //         } on PlatformException catch (e) {
-  //           if (mounted) {
-  //             ScaffoldMessenger.of(context).showSnackBar(
-  //               SnackBar(content: Text('Error with biometrics: ${e.message}')),
-  //             );
-  //           }
-  //           setState(() => isLoading = false);
-  //           return;
-  //         }
-  //
-  //         if (!mounted) return;
-  //
-  //         if (authenticated) {
-  //           final storage = const FlutterSecureStorage();
-  //           await storage.write(key: 'last_email', value: _emailController.text);
-  //
-  //           // ✅ Notify backend of login
-  //           try {
-  //             // 🔹 Get device FCM token first
-  //             final fcmToken = await FirebaseMessaging.instance.getToken();
-  //             print('📲 Current FCM token: $fcmToken');
-  //
-  //             final loginSyncResponse = await http.post(
-  //               Uri.parse(
-  //                 'https://ecsmapappwebadminbackend-production.up.railway.app/api/FieldEngineer/${engineer['id']}/login-sync',
-  //               ),
-  //               headers: {'Content-Type': 'application/json'},
-  //               body: jsonEncode({
-  //                 'userId': engineer['id'], // match backend field name
-  //                 'firstName': engineer['firstName'] ?? engineer['name'].split(' ').first,
-  //                 'lastName': engineer['lastName'] ?? engineer['name'].split(' ').last,
-  //                 'fcmToken': fcmToken, // ✅ Send the FCM token
-  //               }),
-  //             );
-  //
-  //             if (loginSyncResponse.statusCode == 200) {
-  //               print('✅ Login-sync successful for ${engineer['name']}');
-  //             } else {
-  //               print('⚠️ Login-sync failed: ${loginSyncResponse.statusCode}');
-  //             }
-  //             //immediately send initial location
-  //             //await sendInitialLocation(engineer['id']);
-  //           } catch (e) {
-  //             print('Error sending login-sync: $e');
-  //           }
-  //
-  //           // ✅ Navigate after backend confirms
-  //           Navigator.pushReplacement(
-  //             context,
-  //             MaterialPageRoute(
-  //               builder: (context) => MyHomePage(
-  //                 title: 'Hello, ${engineer['name']}',
-  //                 fieldEngineer: engineer,
-  //               ),
-  //             ),
-  //           );
-  //         }
-  //         else {
-  //           ScaffoldMessenger.of(context).showSnackBar(
-  //             const SnackBar(
-  //               content: Text('Authentication failed. Please try again.'),
-  //             ),
-  //           );
-  //         }
-  //       } else {
-  //         ScaffoldMessenger.of(context).showSnackBar(
-  //           const SnackBar(
-  //             content: Text('Field Engineer with this email not found'),
-  //           ),
-  //         );
-  //       }
-  //     } else {
-  //       ScaffoldMessenger.of(context).showSnackBar(
-  //         SnackBar(content: Text('Server Error: ${response.statusCode}')),
-  //       );
-  //     }
-  //   } catch (e) {
-  //     print('Error during login: $e');
-  //     if (mounted) {
-  //       ScaffoldMessenger.of(
-  //         context,
-  //       ).showSnackBar(SnackBar(content: Text('An error occurred: $e')));
-  //     }
-  //   }
-  //
-  //   if (mounted) {
-  //     setState(() {
-  //       isLoading = false;
-  //     });
-  //   }
-  // }
-
   Future<void> _checkDeviceSupported() async {
     try {
       final isSupported = await auth.isDeviceSupported();
@@ -408,17 +253,12 @@ class _LoginPageState extends State<LoginPage> {
                   padding: const EdgeInsets.all(24.0),
                   child: Column(
                     children: [
-                      // Image.asset(
-                      //   'assets/equicomLogo.png',
-                      //   height: 80,
-                      //   fit: BoxFit.contain,
-                      // ),
                       SizedBox(height: 16),
                       Text(
                         'DOROTI',
                         style: GoogleFonts.libreBaskerville(
                           // Beautiful serif font
-                          fontSize: 64,
+                          fontSize: 60,
                           fontWeight: FontWeight.w600, // Light weight
                           fontStyle: FontStyle.italic, // Italic style
                           color: Color.fromARGB(
@@ -567,15 +407,6 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  void _showNotImplemented(String feature) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('$feature not implemented'),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      ),
-    );
-  }
 
   @override
   void dispose() {

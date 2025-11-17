@@ -8,8 +8,6 @@ class ProfileScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
     return Scaffold(
       appBar: AppBar(
         title: Row(
@@ -79,9 +77,21 @@ class ProfileScreen extends StatelessWidget {
               const SizedBox(height: 32),
               _buildInfoCard(
                 context,
-                'Employee ID',
+                'ID',
                 fieldEngineer['id']?.toString() ?? 'N/A',
                 Icons.badge,
+              ),
+              const SizedBox(height: 12),
+              _buildInfoCard(context,
+                  'First Name',
+                  fieldEngineer['firstName'],
+                  Icons.work),
+              const SizedBox(height: 12),
+              _buildInfoCard(
+                context,
+                'Last Name',
+                fieldEngineer['lastName'] ?? 'Field Engineer',
+                Icons.work,
               ),
               const SizedBox(height: 12),
               _buildInfoCard(
@@ -90,13 +100,8 @@ class ProfileScreen extends StatelessWidget {
                 fieldEngineer['phoneNumber'] ?? 'Field Engineering',
                 Icons.phone,
               ),
-              const SizedBox(height: 12),
-              _buildInfoCard(
-                context,
-                'Last Name',
-                fieldEngineer['lastName'] ?? 'Field Engineer',
-                Icons.work,
-              ),
+
+
             ],
           ),
         ),

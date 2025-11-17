@@ -2,9 +2,11 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class DtrScreen extends StatefulWidget {
   final int fieldEngineerId;
+
 
   const DtrScreen({required this.fieldEngineerId, super.key});
 
@@ -16,6 +18,7 @@ class _DtrScreenState extends State<DtrScreen> {
   List attendanceLogs = [];
   DateTime selectedDate = DateTime.now();
   bool isLoading = true;
+  final apiUrl = dotenv.env['API_URL'];
 
 
 
@@ -25,9 +28,6 @@ class _DtrScreenState extends State<DtrScreen> {
     final corrected = parsed.subtract(const Duration(hours: 8));
     return corrected;
   }
-
-
-
 
 
   @override
@@ -40,7 +40,7 @@ class _DtrScreenState extends State<DtrScreen> {
     try {
       final response = await http.get(
         Uri.parse(
-          'https://sdstestwebservices.equicom.com/dorotiserver/api/FieldEngineer/${widget.fieldEngineerId}/attendance',
+          '$apiUrl/FieldEngineer/${widget.fieldEngineerId}/attendance',
         ),
       );
 
@@ -62,7 +62,6 @@ class _DtrScreenState extends State<DtrScreen> {
   List get logsForSelectedDate {
     return attendanceLogs.where((log) {
       final timeIn = parseServerTime(log['timeIn']);
-      final timeOut = log['timeOut'] != null ? parseServerTime(log['timeOut']) : null;
 
 
 

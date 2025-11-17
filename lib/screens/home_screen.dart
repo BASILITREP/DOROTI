@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:developer';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:async';
@@ -11,6 +10,7 @@ import '../screens/profile_screen.dart';
 import '../screens/dtr_screen.dart';
 import '../screens/task_screen.dart';
 import '../screens/login_screen.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 // Model para sa ating attendance log
 class AttendanceLog {
@@ -48,6 +48,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   late Animation<double> _fabScaleAnimation;
   Duration _elapsedTime = Duration.zero;
   Timer? _timer;
+  final apiUrl = dotenv.env['API_URL'];
 
   DateTime parseServerTime(String dateString) {
     final parsed = DateTime.parse(dateString);
@@ -236,7 +237,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
               try {
                 await http.post(
                   Uri.parse(
-                    'https://sdstestwebservices.equicom.com/dorotiserver/api/FieldEngineer/${widget.fieldEngineer['id']}/logout',
+                    '$apiUrl/FieldEngineer/${widget.fieldEngineer['id']}/logout',
                   ),
                 );
               } catch (e) {
@@ -296,8 +297,8 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     }
 
     final url = isClockingIn
-        ? 'https://sdstestwebservices.equicom.com/dorotiserver/api/FieldEngineer/$engineerId/clockin'
-        : 'https://sdstestwebservices.equicom.com/dorotiserver/api/FieldEngineer/$engineerId/clockout';
+        ? '$apiUrl/FieldEngineer/$engineerId/clockin'
+        : '$apiUrl/FieldEngineer/$engineerId/clockout';
 
     try {
       final response = await http.post(Uri.parse(url));
@@ -346,7 +347,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   Future<void> _fetchAttendanceLogs() async {
     final int engineerId = widget.fieldEngineer['id'];
     final url =
-        'https://sdstestwebservices.equicom.com/dorotiserver/api/FieldEngineer/$engineerId/attendance';
+        '$apiUrl/FieldEngineer/$engineerId/attendance';
 
     try {
       final response = await http.get(Uri.parse(url));
@@ -398,7 +399,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     if (isClockedIn) {
       try {
         final url =
-            'https://sdstestwebservices.equicom.com/dorotiserver/api/FieldEngineer/$fieldEngineerId/attendance';
+            '$apiUrl/FieldEngineer/$fieldEngineerId/attendance';
         final response = await http.get(Uri.parse(url));
 
         if (response.statusCode == 200) {

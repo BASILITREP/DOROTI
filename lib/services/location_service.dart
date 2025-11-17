@@ -8,6 +8,8 @@ import 'package:location/location.dart' as loc;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geolocator/geolocator.dart' as geo;
+import '../database/location_db.dart';
+
 
 
 @pragma('vm:entry-point')
@@ -20,6 +22,8 @@ Future<bool> onIosBackground(ServiceInstance service) async {
 @pragma('vm:entry-point')
 void onStart(ServiceInstance service) async {
   DartPluginRegistrant.ensureInitialized();
+
+  await LocationDB.instance();
 
   // ✅ Reapply TLS override for background isolate
   HttpOverrides.global = MyHttpOverrides();
@@ -38,9 +42,14 @@ void onStart(ServiceInstance service) async {
   DateTime lastSentTime = DateTime.now();
 
   // --- CONFIG ---
-  const double MIN_DISTANCE_METERS = 25; //25
-  const Duration MIN_TIME_INTERVAL = Duration(seconds: 30); //30
-  const int MAX_BATCH_SIZE = 20;
+  const double minDistanceMeters = 25; //25
+  const Duration minTimeInterval = Duration(seconds: 30); //30
+  const int maxBatchSize = 20;
+
+  final prefs = await SharedPreferences.getInstance();
+  final apiUrl = prefs.getString("API_URL")!;
+  print("🌍 Loaded API_URL inside isolate: $apiUrl");
+
 
 
 
@@ -50,7 +59,7 @@ void onStart(ServiceInstance service) async {
 
     try {
       final url = Uri.parse(
-          'https://sdstestwebservices.equicom.com/dorotiserver/api/FieldEngineer/updateLocation');
+          '$apiUrl/FieldEngineer/updateLocation');
       final response = await http.post(
         url,
         headers: {'Content-Type': 'application/json'},
@@ -111,7 +120,7 @@ void onStart(ServiceInstance service) async {
     // --- 4️⃣ Attempt to send batch ---
     try {
       final url = Uri.parse(
-          'https://sdstestwebservices.equicom.com/dorotiserver/api/Location');
+          '$apiUrl/Location');
 
       final response = await http.post(
         url,
@@ -129,74 +138,81 @@ void onStart(ServiceInstance service) async {
         print("❌ [sendLocationHistory] Failed with status ${response.statusCode}");
         print("🧾 Server response: ${response.body}");
 
-        // --- Restore buffer for retry ---
-        locationBuffer.insertAll(0, batchToSend);
-        print("🔁 Restored ${batchToSend.length} points to buffer for retry.");
+        // ❗ Save to SQLite so data is NOT lost when app is killed
+        for (final point in batchToSend) {
+          await LocationDB.insertPoint({
+            'latitude': point['latitude'],
+            'longitude': point['longitude'],
+            'speed': point['speed'],
+            'accuracy': point['accuracy'],
+            'timestamp': point['timestamp'],
+          });
+        }
+        print("💾 Saved failed batch (${batchToSend.length}) → SQLite");
+
+
+
       }
     } catch (e) {
-      // --- 6️⃣ Network or unexpected error ---
-      print("🔥 [sendLocationHistory] Exception while sending batch: $e");
-
-      // --- Reinsert points to buffer so they’re not lost ---
-      locationBuffer.insertAll(0, batchToSend);
-      print("💾 Buffered ${batchToSend.length} points for next retry.");
+      for (final point in batchToSend) {
+        print("🔥 [sendLocationHistory] Exception while sending batch: $e");
+        await LocationDB.insertPoint({
+          'latitude': point['latitude'],
+          'longitude': point['longitude'],
+          'speed': point['speed'],
+          'accuracy': point['accuracy'],
+          'timestamp': point['timestamp'],
+        });
+      }
+      print("🔥 Batch send failed — saved ${batchToSend.length} points → SQLite");
     }
-  }
 
-  //cache unsent location points when offline or API fails
-  Future<void> _cacheUnsentPoint(Map<String, dynamic> point) async{
-    final prefs = await SharedPreferences.getInstance();
-    final cached = prefs.getStringList('unsent_points') ?? [];
-    cached.add(jsonEncode(point));
-    await prefs.setStringList('unsent_points', cached);
-    print("💾 Cached unsent point. Total cached: ${cached.length}");
   }
 
   //Retry sending cached points if connection is back
-  Future<void> _retryCachedPoints() async {
-    final prefs = await SharedPreferences.getInstance();
-    final cached = prefs.getStringList('unsent_points') ?? [];
-    if (cached.isEmpty) return;
+  Future<void> resendCachedPoints() async {
+    final cached = await LocationDB.getAllPoints();
+    if (cached.isEmpty) {
+      print("🟩 No cached points to resend.");
+      return;
+    }
+
     print("🔄 Retrying ${cached.length} cached points...");
-    print("🗂 Cached points: $cached");
 
-    final stillFailed = <String>[];
-    for (final raw in cached) {
-      final point = jsonDecode(raw);
+    final failedIds = <int>[];
 
-      // Validate and add FieldEngineerId
-      if (fieldEngineerId == null || fieldEngineerId == 0) {
-        print("⚠️ Skipping point — missing FieldEngineerId.");
-        continue;
-      }
-      point['fieldEngineerId'] = fieldEngineerId;
-
+    for (var row in cached) {
       try {
         final res = await http.post(
-          Uri.parse('https://sdstestwebservices.equicom.com/dorotiserver/api/Location'),
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode([point]),
+          Uri.parse('$apiUrl/Location'),
+          headers: {"Content-Type": "application/json"},
+          body: jsonEncode([{
+            'fieldEngineerId': fieldEngineerId,
+            'latitude': row['latitude'],
+            'longitude': row['longitude'],
+            'speed': row['speed'],
+            'accuracy': row['accuracy'],
+            'timestamp': row['timestamp'],
+          }]),
         );
 
-        if (res.statusCode == 200 || res.statusCode == 201) {
-          print("✅ Cached point sent successfully.");
-        } else {
-          print("❌ Failed to send cached point: ${res.body}");
-          stillFailed.add(raw);
+        if (res.statusCode != 200 && res.statusCode != 201) {
+          failedIds.add(row['id']);
         }
-      } catch (e) {
-        print("🔥 Error sending cached point: $e");
-        stillFailed.add(raw);
+      } catch (_) {
+        failedIds.add(row['id']);
       }
     }
 
-    await prefs.setStringList('unsent_points', stillFailed);
-    if (stillFailed.isEmpty) {
-      print('🎉 All cached points synced successfully!');
-    } else {
-      print('🟠 ${stillFailed.length} points still pending retry.');
-    }
+    // delete successfully sent points
+    final idsToDelete =
+    cached.map<int>((row) => row['id']).where((id) => !failedIds.contains(id)).toList();
+
+    await LocationDB.deletePoints(idsToDelete);
+
+    print("✨ Resend complete. Remaining (failed): ${failedIds.length}");
   }
+
 
 
   // --- Handle new location updates from main isolate ---
@@ -214,7 +230,7 @@ void onStart(ServiceInstance service) async {
       );
       final timeElapsed = DateTime.now().difference(lastSentTime);
 
-      if (distance < MIN_DISTANCE_METERS && timeElapsed < MIN_TIME_INTERVAL) {
+      if (distance < minDistanceMeters && timeElapsed < minTimeInterval) {
         print("⏸ Skipping point — moved only ${distance.toStringAsFixed(1)}m, ${timeElapsed.inSeconds}s elapsed.");
         return; // Too soon or too close — skip
       }
@@ -228,7 +244,7 @@ void onStart(ServiceInstance service) async {
     print("📍 Buffered point: ${data['latitude']?.toStringAsFixed(6)}, ${data['longitude']?.toStringAsFixed(6)} (Buffer: ${locationBuffer.length})");
 
     // --- Auto-send if batch full ---
-    if (locationBuffer.length >= MAX_BATCH_SIZE) {
+    if (locationBuffer.length >= maxBatchSize) {
       await sendLocationHistory();
     }
 
@@ -254,7 +270,15 @@ void onStart(ServiceInstance service) async {
     liveUpdateTimer?.cancel();
     if (locationBuffer.isNotEmpty) {
       for (final point in locationBuffer) {
-        await _cacheUnsentPoint(point);
+        await LocationDB.insertPoint({
+          'latitude': point['latitude'],
+          'longitude': point['longitude'],
+          'speed': point['speed'],
+          'accuracy': point['accuracy'],
+          'timestamp': point['timestamp'],
+        });
+        print("💾 Cached point → SQLite");
+
       }
       locationBuffer.clear();
       print("💾 Merged buffer points into cache on stop.");
@@ -265,7 +289,6 @@ void onStart(ServiceInstance service) async {
   });
 
   // --- Load saved FE ID ---
-  final prefs = await SharedPreferences.getInstance();
   final isClockedIn = prefs.getBool('isClockedIn') ?? false;
   if (!isClockedIn) {
     print("🛑 Not clocked in — skipping background tracking startup.");
@@ -284,12 +307,12 @@ void onStart(ServiceInstance service) async {
 
   // --- Force-send unsent batches every 2 minutes ---
   batchTimer = Timer.periodic(const Duration(minutes: 2), (timer) async {
-    await _retryCachedPoints();
+    await resendCachedPoints();
     await sendLocationHistory();
   });
 
   print("🚀 Dorothy background tracking started!");
-  await _retryCachedPoints();
+  await resendCachedPoints();
 
   print("📍 Live update: every 10s");
   print("📦 Batch upload: smart-filtered + every 2min");

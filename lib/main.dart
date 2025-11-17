@@ -1,15 +1,15 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'firebase_options.dart';
 import 'screens/login_screen.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'services/location_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -37,16 +37,23 @@ Future<void> initializeNotifications() async {
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+
   // 🧩 Enable legacy TLS renegotiation (for old Equicom servers)
   final context = SecurityContext.defaultContext;
   context.allowLegacyUnsafeRenegotiation = true;
   HttpOverrides.global = MyHttpOverrides(); // 👈 applies globally
   print("⚠️ Legacy TLS renegotiation enabled — internal build mode.");
 
-  await setup();
+
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await initializeNotifications();
   await LocationService().initialize();
+  await dotenv.load(fileName: ".env");
+  // Save API_URL for background isolate
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.setString("API_URL", dotenv.env["API_URL"]!);
+  print("🌍 Saved API_URL for background isolate: ${dotenv.env["API_URL"]}");
+
 
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
@@ -95,7 +102,6 @@ Future<void> main() async {
   });
 
   // Auto resume background service
-  final prefs = await SharedPreferences.getInstance();
   final isClockedIn = prefs.getBool('isClockedIn') ?? false;
   final fieldEngineerId = prefs.getInt('fieldEngineerId');
 
@@ -109,10 +115,6 @@ Future<void> main() async {
   runApp(const MyApp());
 }
 
-Future<void> setup() async {
-  await dotenv.load(fileName: ".env");
-  MapboxOptions.setAccessToken(dotenv.env['MAPBOX_ACCESS_TOKEN']!);
-}
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
