@@ -72,6 +72,8 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     );
     _fetchAttendanceLogs();
     _checkClockInStatus();
+    _saveAutoLoginState();
+
   }
 
   @override
@@ -232,6 +234,8 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
               final prefs = await SharedPreferences.getInstance();
               await prefs.setBool('isClockedIn', false);
               await prefs.remove('fieldEngineerId');
+              await prefs.setBool('isLoggedIn', false);
+
 
               // Notify backend (optional)
               try {
@@ -258,6 +262,13 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
       ),
     );
   }
+
+  Future<void> _saveAutoLoginState() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('isLoggedIn', true);
+    await prefs.setInt('fieldEngineerId', widget.fieldEngineer['id']);
+  }
+
 
 
   Future<void> _toggleTimeIn() async {
@@ -435,10 +446,6 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
       print("🛑 FE not clocked in — no background tracking resumed");
     }
   }
-
-
-
-
 
 
 

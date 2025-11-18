@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -9,6 +10,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'services/location_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'screens/home_screen.dart';
 
 
 @pragma('vm:entry-point')
@@ -104,6 +106,14 @@ Future<void> main() async {
   // Auto resume background service
   final isClockedIn = prefs.getBool('isClockedIn') ?? false;
   final fieldEngineerId = prefs.getInt('fieldEngineerId');
+  final isLoggedIn = prefs.getBool("isLoggedIn") ?? false;
+  final savedFEJson = prefs.getString("savedFieldEngineer");
+
+  Map<String, dynamic>? savedFE;
+  if (savedFEJson != null) {
+    savedFE = jsonDecode(savedFEJson);
+  }
+
 
   if (isClockedIn && fieldEngineerId != null) {
     print("🔄 Auto-starting background tracking after app relaunch");
@@ -112,12 +122,25 @@ Future<void> main() async {
     print("🛑 Not clocked in — skipping auto-start of background service");
   }
 
-  runApp(const MyApp());
+
+
+  runApp(MyApp(
+    isLoggedIn: isLoggedIn,
+    savedFE: savedFE,
+  ));
+
+
 }
 
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  final bool isLoggedIn;
+  final Map<String, dynamic>? savedFE;
+  const MyApp({
+    super.key,
+    required this.isLoggedIn,
+    required this.savedFE,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -147,7 +170,13 @@ class MyApp extends StatelessWidget {
         ),
         scaffoldBackgroundColor: primaryColor,
       ),
-      home: const LoginPage(),
+      home: isLoggedIn && savedFE != null
+          ? MyHomePage(
+        title: "Hello, ${savedFE!['firstName']}",
+        fieldEngineer: savedFE!,
+      )
+          : const LoginPage(),
+
     );
   }
 }

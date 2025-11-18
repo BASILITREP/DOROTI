@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter/services.dart';
 import 'package:local_auth/local_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'home_screen.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -188,6 +189,13 @@ class _LoginPageState extends State<LoginPage> {
 
         final data = json.decode(response.body);
         final fieldEngineer = data['fieldEngineer'];
+
+        // >>> SAVE SESSION FOR AUTO LOGIN <<<
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool("isLoggedIn", true);
+        await prefs.setInt("fieldEngineerId", userId);
+        await prefs.setString("fieldEngineerName", "$firstName $lastName");
+        await prefs.setString("savedFieldEngineer", jsonEncode(fieldEngineer));
 
         Navigator.pushReplacement(
           context,
